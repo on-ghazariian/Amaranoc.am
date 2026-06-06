@@ -1,98 +1,79 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Navigation } from 'swiper/modules';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faMap, faCalendarAlt, faChevronLeft, faChevronRight,
+  faHome, faCampground, faSwimmingPool, faTree, faMountain, faFire, faWater
+} from '@fortawesome/free-solid-svg-icons';
 
-const FooterForm = () => {
-  const [formData, setFormData] = useState({
-    fullName: '',
-    phone: '',
-    email: ''
-  });
+import 'swiper/css';
+import 'swiper/css/navigation';
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prevData) => ({
-      ...prevData,
-      [name]: value
-    }));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log('Ուղարկված տվյալներ:', formData);
-    setFormData({ fullName: '', phone: '', email: '' });
-  };
+export default function CategorySlider() {
+  const categories = [
+    { id: 1, label: 'Ամառանոցներ', icon: faHome },
+    { id: 2, label: 'Frame houses', icon: faCampground },
+    { id: 3, label: 'Տնակներ', icon: faHome },
+    { id: 4, label: 'Փակ լողավազան', icon: faSwimmingPool },
+    { id: 5, label: 'Աղմուկից հեռու', icon: faTree },
+    { id: 6, label: 'Շքեղ տեսարան', icon: faMountain },
+    { id: 7, label: 'Պահանջված', icon: faFire },
+    { id: 8, label: 'Լիճ', icon: faWater },
+  ];
 
   return (
-    <section 
-      className="mt-20 flex items-center justify-center bg-cover bg-center bg-no-repeat px-5 py-[60px]"
-      style={{ backgroundImage: `url('https://amaranoc.am/images/footer/home-add-application.png')` }}
-    >
-      <div className="w-full max-width-[1100px] border border-white/15 bg-white/5 p-5 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-[15px] rounded-[20px] md:max-w-[1100px] md:px-[60px] md:py-10">
-        
-        {/* Վերնագրի հատվածը գծերով */}
-        <div className="mb-[15px] flex items-center justify-center gap-5">
-          <span className="hidden h-px max-w-[200px] flex-grow bg-white/40 md:block"></span>
-          <h2 className="text-xl font-bold tracking-wide text-white whitespace-nowrap md:text-[28px]">
-            ՏԵՂԱԴՐԵԼ ՀԱՅՏԱՐԱՐՈՒԹՅՈՒՆ
-          </h2>
-          <span className="hidden h-px max-w-[200px] flex-grow bg-white/40 md:block"></span>
-        </div>
-        
-        {/* Ենթավերնագիր */}
-        <p className="mb-[35px] text-sm text-white/80">
-          Մուտքագրեք Ձեր տվյալները նշված դաշտերում և մենք կկապնվենք Ձեզ հետ
-        </p>
-        
-        {/* Ֆորմա */}
-        <form className="flex flex-col flex-wrap justify-center gap-[15px] md:flex-row md:items-center" onSubmit={handleSubmit}>
-          
-          <div className="w-full min-w-[220px] md:flex-1">
-            <input 
-              type="text" 
-              name="fullName"
-              placeholder="Անուն Ազգանուն" 
-              className="w-full rounded-xl border border-white/25 bg-black/20 px-5 py-[14px] text-sm text-white outline-none transition-all placeholder:text-white/50 focus:border-[#ff9f43] focus:bg-black/40"
-              value={formData.fullName}
-              onChange={handleChange}
-              required 
-            />
-          </div>
-
-          <div className="w-full min-w-[220px] md:flex-1">
-            <input 
-              type="text" 
-              name="phone"
-              placeholder="Հեռախոսահամար" 
-              className="w-full rounded-xl border border-white/25 bg-black/20 px-5 py-[14px] text-sm text-white outline-none transition-all placeholder:text-white/50 focus:border-[#ff9f43] focus:bg-black/40"
-              value={formData.phone}
-              onChange={handleChange}
-              required 
-            />
-          </div>
-
-          <div className="w-full min-w-55 md:flex-1">
-            <input 
-              type="email" 
-              name="email"
-              placeholder="Էլ. հասցե" 
-              className="w-full rounded-xl border border-white/25 bg-black/20 px-5 py-[14px] text-sm text-white outline-none transition-all placeholder:text-white/50 focus:border-[#ff9f43] focus:bg-black/40"
-              value={formData.email}
-              onChange={handleChange}
-              required 
-            />
-          </div>
-
-          <button 
-            type="submit" 
-            className="w-full rounded-xl border-none bg-[#ff9f43] px-[35px] py-[14px] text-base font-semibold text-white whitespace-nowrap transition-all cursor-pointer hover:bg-[#e08528] active:scale-[0.98] md:w-auto"
-          >
-            Ուղարկել
-          </button>
-
-        </form>
-
+    <div className="w-full select-none bg-white">
+      {/* Գործողությունների Կոճակներ */}
+      <div className="mb-4 flex gap-3">
+        <button className="flex cursor-pointer items-center gap-2 rounded-[30px] border border-black bg-white px-[22px] py-2 text-sm font-semibold text-black">
+          <span>Քարտեզ</span>
+          <FontAwesomeIcon icon={faMap} />
+        </button>
+        <button className="flex h-[38px] w-[38px] cursor-pointer items-center justify-center rounded-full border border-[#cbd5e1] bg-white text-[#475569]">
+          <FontAwesomeIcon icon={faCalendarAlt} />
+        </button>
       </div>
-    </section>
-  );
-};
 
-export default FooterForm;
+      <hr className="m-0 border-0 border-t border-[#f1f5f9]" />
+
+      {/* Սլայդեր Վրապպեր */}
+      <div className="relative my-3 flex items-center px-9">
+        {/* Ձախ կոճակ */}
+        <button 
+          id="cat-prev" 
+          className="absolute left-0 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[#cbd5e1] bg-white text-[10px] text-[#475569] shadow-[0_2px_4px_rgba(0,0,0,0.06)] [&.swiper-button-disabled]:pointer-events-none [&.swiper-button-disabled]:opacity-0"
+        >
+          <FontAwesomeIcon icon={faChevronLeft} />
+        </button>
+
+        <Swiper
+          modules={[Navigation]}
+          navigation={{ prevEl: '#cat-prev', nextEl: '#cat-next' }}
+          spaceBetween={28}
+          slidesPerView="auto"
+          className="w-full"
+        >
+          {categories.map((cat) => (
+            <SwiperSlide key={cat.id} style={{ width: 'auto' }}>
+              <div className="group flex cursor-pointer flex-col items-center gap-2 border-b-2 border-transparent pb-2 text-[#64748b] transition-all duration-200 hover:border-black hover:text-black">
+                <FontAwesomeIcon icon={cat.icon} className="text-15xl" />
+                <span className="text-[12px] font-medium whitespace-nowrap">{cat.label}</span>
+              </div>
+            </SwiperSlide>
+          ))}
+        </Swiper>
+
+        {/* Աջ կոճակ */}
+        <button 
+          id="cat-next" 
+          className="absolute right-0 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-[#cbd5e1] bg-white text-[10px] text-[#475569] shadow-[0_2px_4px_rgba(0,0,0,0.06)] [&.swiper-button-disabled]:pointer-events-none [&.swiper-button-disabled]:opacity-0"
+        >
+          <FontAwesomeIcon icon={faChevronRight} />
+        </button>
+      </div>
+      
+      <hr className="m-0 border-0 border-t border-[#f1f5f9]" />
+    </div>
+  );
+}   
