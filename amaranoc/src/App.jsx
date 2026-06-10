@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import Home from "./pages/Home";
 import Like from './pages/LIke'
 import Services from "./pages/Services";
+import Chat from "./pages/Chat";
 import "./App.css";
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/likes" element={<Like />} />
           <Route path="/services" element={<Services />} />
+          <Route path="/chat" element={<Chat />} />
         </Routes>
       </div>
     </>
