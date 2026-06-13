@@ -18,7 +18,7 @@ function Search() {
       </Link>
 
       <i className="fa-solid fa-globe cursor-pointer text-[15px] text-[#1a2530]"></i>
-      <i className="fa-regular fa-user cursor-pointer text-[15px] text-[#1a2530]"></i>
+      <a href='/chat'><i className="fa-regular fa-user cursor-pointer text-[15px] text-[#1a2530]"></i></a>
       
       <div className="relative flex items-center w-[255px]">
         <input 
