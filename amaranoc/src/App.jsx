@@ -6,6 +6,7 @@ import Services from "./pages/Services";
 import Chat from "./pages/Chat";
 import "./App.css";
 import HomePage from "./components/main/homes/homePage";
+import Zexcher from "./pages/zexcher";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
           <Route path="/services" element={<Services />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/home/:id" element={<HomePage />} />
+          <Route path="/zexch" element={<Zexcher/>} />
 
         </Routes>
       </div>

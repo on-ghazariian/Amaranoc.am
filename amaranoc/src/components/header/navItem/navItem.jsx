@@ -4,7 +4,7 @@ import { NavLink } from 'react-router-dom';
 function Navigation() {
   const menuItems = [
     { name: 'Գլխավոր', path: '/' },
-    { name: 'Զեղչեր', path: '/discounts' },
+    { name: 'Զեղչեր', path: '/zexch' },
     { name: 'Ծառայություններ', path: '/services' },
     { name: 'Մեր մասին', path: '/about' }
   ];
