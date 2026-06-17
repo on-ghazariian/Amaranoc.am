@@ -23,7 +23,7 @@ const FooterForm = () => {
 
   return (
     <section 
-      className="mt-20 flex items-center justify-center bg-cover bg-center bg-no-repeat px-5 py-[60px]"
+      className="mt-20 w-full flex items-center justify-center bg-cover bg-center bg-no-repeat px-5 py-[60px]"
       style={{ backgroundImage: `url('https://amaranoc.am/images/footer/home-add-application.png')` }}
     >
       <div className="w-full max-width-[1100px] border border-white/15 bg-white/5 p-5 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-[15px] rounded-[20px] md:max-w-[1100px] md:px-[60px] md:py-10">
