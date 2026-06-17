@@ -4,11 +4,11 @@ import Home from "./homes/home";
 
 export function Main() {
   return (
-    <>
-      <div className="flex flex-col justify-center gap-6 px-4 pt-[50px] md:flex-row md:gap-[50px] lg:px-[100px]">
+    <main className="w-full bg-gray-50/50">
+      <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 md:px-10 md:py-10 lg:px-[70px] flex flex-col xl:flex-row gap-6 md:gap-8 lg:gap-[50px] items-start">
         <Filter />
         <Home />
       </div>
-    </>
+    </main>
   );
 }

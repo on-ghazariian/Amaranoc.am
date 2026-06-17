@@ -8,18 +8,24 @@ import CurrencySelector from './CurrencySelector';
 
 function Filter() {
   return (
-    <aside className="flex w-[280px] shrink-0 flex-col gap-5 rounded-2xl border border-[#e0e0e0] bg-white p-5 font-sans">
+    <aside className="w-full xl:w-[280px] 2xl:w-[300px] shrink-0 flex flex-col gap-5 rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-5 font-sans">
       <FilterGroup title="Տարածաշրջան">
-        <CheckboxFilter label="Ծաղկաձոր" count={11} checked />
-        <CheckboxFilter label="Դիլիջան" count={1} />
-        <CheckboxFilter label="Երևան" count={0} />
-        <CheckboxFilter label="Էջմիածին" count={0} />
-        <CheckboxFilter label="Փարաքար" count={0} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:flex xl:flex-col gap-2 sm:gap-1">
+          <CheckboxFilter label="Ծաղկաձոր" count={11} checked />
+          <CheckboxFilter label="Դիլիջան" count={1} />
+          <CheckboxFilter label="Երևան" count={0} />
+          <CheckboxFilter label="Էջմիածին" count={0} />
+          <CheckboxFilter label="Փարաքար" count={0} />
+        </div>
       </FilterGroup>
 
       <FilterGroup title="Արժեք">
-        <CurrencySelector />
-        <RangeFilter />
+        <div className="flex flex-col sm:flex-row xl:flex-col gap-3 sm:items-center xl:items-stretch">
+          <CurrencySelector />
+          <div className="w-full">
+            <RangeFilter />
+          </div>
+        </div>
       </FilterGroup>
 
       <FilterGroup title="Մարդկանց թույլատրելի քանակ">
@@ -47,14 +53,16 @@ function Filter() {
       </FilterGroup>
 
       <FilterGroup title="Առավելություններ">
-        <CheckboxFilter label="Շոգեբաղնիք" />
-        <CheckboxFilter label="Ջակուզի" />
-        <CheckboxFilter label="Բիլիարդ" />
-        <CheckboxFilter label="Սեղանի թենիս" />
-        <CheckboxFilter label="Բացօթյա տաղավար" />
-        <CheckboxFilter label="Փակ տաղավար" />
-        <CheckboxFilter label="Մանղալ" />
-        <CheckboxFilter label="Ճոճանակ" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:flex xl:flex-col gap-2 sm:gap-1">
+          <CheckboxFilter label="Շոգեբաղնիք" />
+          <CheckboxFilter label="Ջակուզի" />
+          <CheckboxFilter label="Բիլիարդ" />
+          <CheckboxFilter label="Սեղանի թենիս" />
+          <CheckboxFilter label="Բացօթյա տաղավար" />
+          <CheckboxFilter label="Փակ տաղավար" />
+          <CheckboxFilter label="Մանղալ" />
+          <CheckboxFilter label="Ճոճանակ" />
+        </div>
       </FilterGroup>
     </aside>
   );
