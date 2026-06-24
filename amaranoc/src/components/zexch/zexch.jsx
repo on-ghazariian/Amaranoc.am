@@ -27,22 +27,24 @@ export default function Zexch() {
   ];
 
   return (
-    <section className="w-full bg-white py-10 select-none">
+    <div className="w-full bg-white py-10 select-none flex flex-col items-center px-4">
       
-      <div className="flex items-center justify-between gap-4 mb-8">
+      {/* Վերնագրի հատված — Սահմանափակված է 1100px լայնությամբ */}
+      <div className="flex items-center justify-between gap-4 mb-10 w-full max-w-[1100px]">
         <div className="hidden sm:block h-px bg-[#e2e8f0] flex-grow" />
-        <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-[#0f172a] uppercase tracking-wide whitespace-nowrap text-center w-full sm:w-auto px-4">
+        <h2 className="text-xl sm:text-2xl font-black text-[#0f172a] uppercase tracking-wide whitespace-nowrap px-4">
           Հատուկ զեղչեր
         </h2>
         <div className="hidden sm:block h-px bg-[#e2e8f0] flex-grow" />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+      {/* Քարտերի ցանցը (Grid) — Սահմանափակված է 1100px լայնությամբ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-[1100px]">
         {offersDb.map((offer) => (
           <ZexchCard key={offer.id} offer={offer} />
         ))}
       </div>
 
-    </section>
+    </div>
   );
 }

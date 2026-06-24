@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { auth, signInWithGoogle, logout, db } from './../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { ref, set, push, onValue, serverTimestamp } from 'firebase/database';
+import AgoraRTC from 'agora-rtc-sdk-ng';
+
+const AGORA_APP_ID = "05191a83d499435dbc285b7be763efd7";
+const AGORA_TEMP_TOKEN = "007eJxTYAjewKJvkbTP+KL9p4+PZyQ+fGv0Vfrgz5JlVW8cy0wzfuYoMBiYGloaJloYp5hYWpoYm6YkJRtZmCaZJ6WamxmnpqWY6563zmoIZGR4JvKQmZEBAkF8TobcxMw83eSMxBIGBgB+LiMW";
 
 export default function Chat() {
   const [user, setUser] = useState(null);
@@ -9,7 +13,20 @@ export default function Chat() {
   const [activechatUser, setActiveChatUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const dummySpace = useRef();
+
+  const [callSession, setCallSession] = useState(null);
+  const [inCall, setInCall] = useState(false);
+  const [callType, setCallType] = useState('video');
+  const [micMuted, setMicMuted] = useState(false);
+  const [camMuted, setCamMuted] = useState(false);
+
+  const agoraClientRef = useRef(null);
+  const localTracksRef = useRef([]);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const remoteUserTrackRef = useRef(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -29,7 +46,6 @@ export default function Chat() {
 
   useEffect(() => {
     if (!user) return;
-
     const usersRef = ref(db, 'users');
     const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val();
@@ -40,7 +56,6 @@ export default function Chat() {
         setUsersList([]);
       }
     });
-
     return () => unsubscribe();
   }, [user]);
 
@@ -49,13 +64,11 @@ export default function Chat() {
       setMessages([]);
       return;
     }
-
     const chatId = user.uid > activechatUser.uid 
       ? `${user.uid}_${activechatUser.uid}` 
       : `${activechatUser.uid}_${user.uid}`;
 
     const messagesRef = ref(db, `chats/${chatId}/messages`);
-    
     const unsubscribe = onValue(messagesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -69,9 +82,29 @@ export default function Chat() {
         setMessages([]);
       }
     });
-
     return () => unsubscribe();
   }, [user, activechatUser]);
+
+  useEffect(() => {
+    if (!user) return;
+    const callRef = ref(db, `calls/${user.uid}`);
+    const unsubscribe = onValue(callRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data && data.status === "ringing") {
+        setCallSession(data);
+        setCallType(data.type || 'video');
+      } else {
+        setCallSession(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (inCall && callType === 'video' && remoteVideoRef.current && remoteUserTrackRef.current) {
+      remoteUserTrackRef.current.play(remoteVideoRef.current);
+    }
+  }, [inCall, callType, remoteVideoRef.current]);
 
   const sendMessage = async (e) => {
     e.preventDefault();
@@ -91,17 +124,164 @@ export default function Chat() {
       displayName: user.displayName,
       photoURL: user.photoURL || ''
     });
-
     setNewMessage('');
+  };
+
+  const startCall = async (type) => {
+    if (!activechatUser || !user) return;
+
+    // Ֆիքսված սենյակի անուն ձեր տոկենի համար
+    const channelName = "main-chat";
+
+    setCallType(type);
+    setMicMuted(false);
+    setCamMuted(type === 'audio');
+    
+    const targetCallRef = ref(db, `calls/${activechatUser.uid}`);
+    await set(targetCallRef, {
+      channelName,
+      callerId: user.uid,
+      callerName: user.displayName,
+      callerPhoto: user.photoURL || '',
+      status: "ringing",
+      type: type
+    });
+
+    const myCallRef = ref(db, `calls/${user.uid}`);
+    await set(myCallRef, {
+      channelName,
+      status: "dialing",
+      type: type
+    });
+
+    initAgora(channelName, type);
+  };
+
+  const acceptCall = () => {
+    if (!callSession) return;
+    
+    // Միշտ միանում ենք ֆիքսված սենյակին
+    const channelName = "main-chat";
+    const type = callSession.type || 'video';
+    setCallType(type);
+    setMicMuted(false);
+    setCamMuted(type === 'audio');
+
+    const callerRef = ref(db, `calls/${callSession.callerId}`);
+    set(callerRef, { status: "connected", channelName, type });
+
+    const myCallRef = ref(db, `calls/${user.uid}`);
+    set(myCallRef, { status: "connected", channelName, type });
+
+    initAgora(channelName, type);
+  };
+
+  const rejectCall = () => {
+    if (!callSession) return;
+    const callerRef = ref(db, `calls/${callSession.callerId}`);
+    set(callerRef, null);
+
+    const myCallRef = ref(db, `calls/${user.uid}`);
+    set(myCallRef, null);
+    endAgora();
+  };
+
+  const initAgora = async (channel, type) => {
+    setInCall(true);
+    agoraClientRef.current = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+    agoraClientRef.current.on("user-published", async (remoteUser, mediaType) => {
+      await agoraClientRef.current.subscribe(remoteUser, mediaType);
+      
+      if (mediaType === "video" && type === 'video') {
+        remoteUserTrackRef.current = remoteUser.videoTrack;
+        if (remoteVideoRef.current) {
+          remoteUser.videoTrack.play(remoteVideoRef.current);
+        }
+      }
+      if (mediaType === "audio") {
+        remoteUser.audioTrack.play();
+      }
+    });
+
+    agoraClientRef.current.on("user-unpublished", (remoteUser, mediaType) => {
+      if (mediaType === "video") {
+        remoteUserTrackRef.current = null;
+      }
+    });
+
+    agoraClientRef.current.on("user-left", () => {
+      endCall();
+    });
+
+    await agoraClientRef.current.join(AGORA_APP_ID, channel, AGORA_TEMP_TOKEN, null);
+
+    if (type === 'video') {
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      localTracksRef.current = [audioTrack, videoTrack];
+      if (localVideoRef.current) {
+        videoTrack.play(localVideoRef.current);
+      }
+    } else {
+      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      localTracksRef.current = [audioTrack];
+    }
+
+    await agoraClientRef.current.publish(localTracksRef.current);
+  };
+
+  const toggleMic = () => {
+    if (localTracksRef.current[0]) {
+      localTracksRef.current[0].setEnabled(micMuted);
+      setMicMuted(!micMuted);
+    }
+  };
+
+  const toggleCam = () => {
+    if (callType === 'audio') return;
+    const videoTrack = localTracksRef.current[1];
+    if (videoTrack) {
+      videoTrack.setEnabled(camMuted);
+      setCamMuted(!camMuted);
+    }
+  };
+
+  const endCall = async () => {
+    if (activechatUser) {
+      set(ref(db, `calls/${activechatUser.uid}`), null);
+    }
+    if (user) {
+      set(ref(db, `calls/${user.uid}`), null);
+    }
+    endAgora();
+  };
+
+  const endAgora = async () => {
+    localTracksRef.current.forEach(track => {
+      track.stop();
+      track.close();
+    });
+    localTracksRef.current = [];
+    remoteUserTrackRef.current = null;
+    if (agoraClientRef.current) {
+      await agoraClientRef.current.leave();
+    }
+    setInCall(false);
+    setCallSession(null);
+  };
+
+  const handleSelectUser = (selectedUser) => {
+    setActiveChatUser(selectedUser);
+    setMobileSidebarOpen(false);
   };
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen font-sans bg-[#f0f2f5]">
-        <h2 className="text-3xl font-bold mb-6 text-gray-800">Welcome to ChatHub</h2>
+      <div className="flex flex-col items-center justify-center h-screen w-screen font-sans bg-[#f0f2f5] px-4 text-center">
+        <h2 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-800">Welcome to ChatHub</h2>
         <button 
           onClick={signInWithGoogle} 
-          className="flex items-center gap-2 px-6 py-3 text-lg font-semibold bg-[#4285F4] text-white border-none rounded-full hover:bg-[#357ae8] transition-colors shadow-lg active:scale-95"
+          className="flex items-center gap-2 px-6 py-3 text-base sm:text-lg font-semibold bg-[#4285F4] text-white border-none rounded-full hover:bg-[#357ae8] transition-colors shadow-lg active:scale-95 cursor-pointer"
         >
           <svg className="w-5 h-5" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.64 24.55c0-1.65-.15-3.23-.42-4.75H24v9h12.75c-.55 2.86-2.16 5.27-4.57 6.89l7.98 6.19C44.3 38.62 46.64 32.17 46.64 24.55z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.98-6.19c-2.33 1.52-5.18 2.4-7.91 2.4-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path>
@@ -113,11 +293,77 @@ export default function Chat() {
   }
 
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-[#dfdfdf] p-4 md:p-6 font-sans">
+    <div className="flex items-center justify-center h-screen w-screen bg-[#dfdfdf] p-0 sm:p-4 md:p-6 font-sans relative">
       
-      <div className="flex h-full w-full max-w-[1300px] max-h-[850px] bg-white rounded-2xl shadow-2xl border border-solid border-gray-300/70 overflow-hidden">
+      {callSession && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center flex flex-col items-center gap-4">
+            <img src={callSession.callerPhoto} alt="caller" className="w-20 h-20 rounded-full object-cover border-2 border-[#0b93f6]" />
+            <h4 className="text-xl font-bold text-gray-900">{callSession.callerName}</h4>
+            <p className="text-gray-500 animate-pulse">
+              Incoming {callSession.type === 'audio' ? 'voice' : 'video'} call...
+            </p>
+            <div className="flex gap-4 w-full mt-2">
+              <button onClick={acceptCall} className="flex-1 bg-green-500 text-white py-2.5 rounded-xl font-semibold hover:bg-green-600 transition-colors cursor-pointer">Accept</button>
+              <button onClick={rejectCall} className="flex-1 bg-red-500 text-white py-2.5 rounded-xl font-semibold hover:bg-red-600 transition-colors cursor-pointer">Reject</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {inCall && (
+        <div className="absolute inset-0 bg-slate-900 z-40 flex flex-col">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 p-4 gap-4 bg-slate-950">
+            {callType === 'video' ? (
+              <>
+                <div className="relative bg-slate-800 rounded-xl overflow-hidden shadow-inner border border-slate-700/50">
+                  <div ref={localVideoRef} className={`w-full h-full ${camMuted ? 'hidden' : 'block'}`} />
+                  {camMuted && <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">Camera Off</div>}
+                  <span className="absolute bottom-3 left-3 bg-black/50 px-3 py-1 text-xs text-white rounded-md font-medium">You</span>
+                </div>
+                <div className="relative bg-slate-800 rounded-xl overflow-hidden shadow-inner border border-slate-700/50">
+                  <div ref={remoteVideoRef} className="w-full h-full" />
+                  <span className="absolute bottom-3 left-3 bg-black/50 px-3 py-1 text-xs text-white rounded-md font-medium">Remote User</span>
+                </div>
+              </>
+            ) : (
+              <div className="col-span-1 md:col-span-2 flex flex-col items-center justify-center gap-4 bg-slate-900 text-white">
+                <div className="w-24 h-24 bg-[#0b93f6] rounded-full flex items-center justify-center font-bold text-3xl animate-pulse shadow-xl">
+                  📞
+                </div>
+                <h3 className="text-xl font-semibold">Voice Call in Progress</h3>
+                <p className="text-slate-400 text-sm">{micMuted ? "Your mic is muted" : "Speaking..."}</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="h-24 bg-slate-900 border-t border-slate-800 flex items-center justify-center gap-4">
+            <button 
+              onClick={toggleMic} 
+              className={`p-3.5 rounded-full font-semibold transition-all active:scale-95 shadow-md cursor-pointer ${micMuted ? 'bg-red-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+            >
+              {micMuted ? "🔇 Mic Off" : "🎙️ Mic On"}
+            </button>
+
+            {callType === 'video' && (
+              <button 
+                onClick={toggleCam} 
+                className={`p-3.5 rounded-full font-semibold transition-all active:scale-95 shadow-md cursor-pointer ${camMuted ? 'bg-red-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+              >
+                {camMuted ? "📷 Cam Off" : "📹 Cam On"}
+              </button>
+            )}
+
+            <button onClick={endCall} className="bg-red-500 text-white px-8 py-3.5 rounded-full font-semibold hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-red-500/30 cursor-pointer">
+              End Call
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex h-full w-full max-w-[1300px] max-h-[850px] bg-white sm:rounded-2xl shadow-2xl border-none sm:border sm:border-solid sm:border-gray-300/70 overflow-hidden">
         
-        <aside className="w-80 border-r border-solid border-gray-200 flex flex-col bg-[#f8f9fa] shrink-0">
+        <aside className={`${mobileSidebarOpen ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-r border-solid border-gray-200 flex-col bg-[#f8f9fa] shrink-0 h-full`}>
           <header className="flex justify-between items-center p-4 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0">
             <div className="flex items-center gap-3 overflow-hidden">
               {user.photoURL ? (
@@ -144,10 +390,10 @@ export default function Chat() {
             ) : usersList.map((u) => (
               <button
                 key={u.uid}
-                onClick={() => setActiveChatUser(u)}
-                className={`flex items-center gap-3.5 w-full p-3 rounded-xl text-left transition-all ${
+                onClick={() => handleSelectUser(u)}
+                className={`flex items-center gap-3.5 w-full p-3 rounded-xl text-left transition-all cursor-pointer ${
                   activechatUser?.uid === u.uid 
-                    ? 'bg-[#0b93f6] text-white shadow-md shadow-blue-200' 
+                    ? 'bg-[#0b93f6] text-white shadow-md' 
                     : 'hover:bg-gray-200/60 text-black active:bg-gray-200'
                 }`}
               >
@@ -167,24 +413,57 @@ export default function Chat() {
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col bg-white">
+        <main className={`${!mobileSidebarOpen ? 'flex' : 'hidden'} md:flex flex-1 flex-col bg-white h-full relative`}>
           {activechatUser ? (
             <>
-              <header className="flex items-center gap-3.5 py-2.5 px-6 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0 z-10">
-                {activechatUser.photoURL ? (
-                  <img src={activechatUser.photoURL} alt={activechatUser.displayName} className="w-10 h-10 rounded-full object-cover shadow border border-gray-200" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-[#0b93f6] text-white flex items-center justify-center font-bold">
-                    {activechatUser.displayName?.charAt(0).toUpperCase()}
+              <header className="flex justify-between items-center py-2.5 px-4 sm:px-6 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0 z-10">
+                <div className="flex items-center gap-3.5 overflow-hidden">
+                  <button 
+                    onClick={() => setMobileSidebarOpen(true)} 
+                    className="block md:hidden mr-1 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                    </svg>
+                  </button>
+
+                  {activechatUser.photoURL ? (
+                    <img src={activechatUser.photoURL} alt={activechatUser.displayName} className="w-10 h-10 rounded-full object-cover shadow border border-gray-200" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-[#0b93f6] text-white flex items-center justify-center font-bold">
+                      {activechatUser.displayName?.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex flex-col overflow-hidden">
+                    <h3 className="font-semibold text-gray-950 text-sm leading-tight truncate">{activechatUser.displayName}</h3>
+                    <span className="text-xs text-green-500 font-medium">Active now</span>
                   </div>
-                )}
-                <div className="flex flex-col">
-                  <h3 className="font-semibold text-gray-950 text-sm leading-tight">{activechatUser.displayName}</h3>
-                  <span className="text-xs text-green-500 font-medium">Active now</span>
+                </div>
+
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => startCall('audio')}
+                    className="p-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-full flex items-center justify-center shadow-md shadow-blue-500/20 active:scale-95 transition-all border-none cursor-pointer"
+                    title="Voice Call"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4.5 h-4.5">
+                      <path fillRule="evenodd" d="M1.5 4.5a3 3 0 013-3h1.372c.86 0 1.61.586 1.819 1.42l1.105 4.423a1.875 1.875 0 01-.694 1.954l-1.293.97c1.358 2.43 3.347 4.42 5.776 5.776l.97-1.293a1.875 1.875 0 011.954-.694l4.423 1.105c.834.209 1.42.959 1.42 1.82V19.5a3 3 0 01-3 3h-2.25C8.552 22.5 1.5 15.448 1.5 6.75V4.5z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+
+                  <button 
+                    onClick={() => startCall('video')}
+                    className="p-2.5 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center shadow-md shadow-green-500/20 active:scale-95 transition-all border-none cursor-pointer"
+                    title="Video Call"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4.5 h-4.5">
+                      <path d="M4.5 4.5a3 3 0 00-3 3v9a3 3 0 003 3h8.25a3 3 0 003-3V7.5a3 3 0 00-3-3H4.5zM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.94-.94 2.56-.27 2.56 1.06v11.38c0 1.33-1.62 2-2.56 1.06z" />
+                    </svg>
+                  </button>
                 </div>
               </header>
 
-              <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-3 bg-[#f4f5f7]">
+              <div className="flex-1 p-4 sm:p-6 overflow-y-auto flex flex-col gap-3 bg-[#f4f5f7]">
                 {messages.map((msg) => (
                   <div 
                     key={msg.id} 
@@ -202,10 +481,10 @@ export default function Chat() {
                       </>
                     )}
                     <div 
-                      className={`p-3 px-4 max-w-[70%] break-words shadow-sm ${
+                      className={`p-3 px-4 max-w-[85%] sm:max-w-[70%] break-words shadow-sm ${
                         msg.uid === user.uid 
-                          ? 'self-end bg-[#0b93f6] text-white rounded-t-2xl rounded-bl-2xl rounded-br-sm' 
-                          : 'self-start bg-white text-gray-900 rounded-t-2xl rounded-br-2xl rounded-bl-sm border border-solid border-gray-100'
+                          ? 'bg-[#0b93f6] text-white rounded-t-2xl rounded-bl-2xl rounded-br-sm' 
+                          : 'bg-white text-gray-900 rounded-t-2xl rounded-br-2xl rounded-bl-sm border border-solid border-gray-100'
                       }`}
                     >
                       <p className="text-sm">{msg.text}</p>
@@ -215,16 +494,16 @@ export default function Chat() {
                 <div ref={dummySpace}></div>
               </div>
 
-              <form onSubmit={sendMessage} className="flex gap-2.5 p-4 bg-white shrink-0 z-10 border-t border-solid border-gray-100">
+              <form onSubmit={sendMessage} className="flex gap-2 p-3 sm:p-4 bg-white shrink-0 z-10 border-t border-solid border-gray-100">
                 <input 
                   value={newMessage} 
                   onChange={(e) => setNewMessage(e.target.value)} 
-                  placeholder={`Type a message to ${activechatUser.displayName}...`} 
-                  className="flex-1 py-3 px-5 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] focus:shadow-sm transition-all"
+                  placeholder="Type a message..." 
+                  className="flex-1 py-2.5 px-4 sm:py-3 sm:px-5 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] transition-all"
                 />
                 <button 
                   type="submit" 
-                  className={`py-0 px-5 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md shadow-blue-200' : 'bg-gray-300'}`}
+                  className={`py-0 px-4 sm:px-5 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md' : 'bg-gray-300'}`}
                   disabled={!newMessage.trim()}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 -rotate-45 relative right-0.5">
@@ -234,8 +513,8 @@ export default function Chat() {
               </form>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center bg-[#f8f9fa] text-gray-400 font-medium">
-              Select a contact to start chatting
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#f8f9fa] text-gray-400 font-medium p-4 text-center">
+              <span className="hidden md:block">Select a contact to start chatting</span>
             </div>
           )}
         </main>

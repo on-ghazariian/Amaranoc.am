@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { getDatabase } from "firebase/database";
+
 const firebaseConfig = {
   apiKey: "AIzaSyA-w6nX7vd1Z6LSyVDUc6yWJ_7EjRYExJk",
   authDomain: "amaranoc-da6d9.firebaseapp.com",
@@ -13,7 +14,7 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getDatabase(app); // <--- Փոխում ենք getDatabase()-ի
+export const db = getDatabase(app);
 export const provider = new GoogleAuthProvider();
 export const signInWithGoogle = () => signInWithPopup(auth, provider);
 export const logout = () => signOut(auth);
