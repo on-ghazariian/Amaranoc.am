@@ -62,7 +62,7 @@ export default function HomeCard({ home, index }) {
           onClick={(swiper, e) => e.stopPropagation()}
           className="h-full w-full [&_.swiper-pagination-bullet]:!bg-white [&_.swiper-pagination-bullet]:!w-1.5 [&_.swiper-pagination-bullet]:!h-1.5 [&_.swiper-pagination-bullet]:!opacity-50 [&_.swiper-pagination-bullet-active]:!opacity-100"
         >
-          {home.imgs.map((imgUrl, imgIdx) => (
+          {home.images.map((imgUrl, imgIdx) => (
             <SwiperSlide key={imgIdx}>
               <img src={imgUrl} alt="property" className="h-full w-full object-cover" />
             </SwiperSlide>
@@ -74,11 +74,11 @@ export default function HomeCard({ home, index }) {
         <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1.5">
           <div className="flex items-center gap-1 sm:gap-1.5 text-xs sm:text-[13px] font-medium text-[#334155]">
             <FontAwesomeIcon icon={faMapMarkerAlt} className="text-[#f97316] shrink-0" />
-            <span className="truncate max-w-[140px] xs:max-w-none">{home.loc}</span>
+            <span className="truncate max-w-[140px] xs:max-w-none">{home.addres}</span>
           </div>
           <div className="flex items-center gap-1 sm:gap-1.5 text-xs sm:text-[13px] font-medium text-[#334155]">
             <FontAwesomeIcon icon={faUsers} className="text-[#f97316] shrink-0" />
-            <span>{home.person} հոգի</span>
+            <span>{home.peopleCount} հոգի</span>
           </div>
         </div>
         <div className="text-sm sm:text-base font-bold text-[#0f172a] mt-2">

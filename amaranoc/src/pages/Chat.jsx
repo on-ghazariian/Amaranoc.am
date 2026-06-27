@@ -1,20 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, signInWithGoogle, logout, db } from './../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, set, push, onValue, serverTimestamp } from 'firebase/database';
+import { ref, set, push, onValue, serverTimestamp, update, remove } from 'firebase/database';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
 const AGORA_APP_ID = "05191a83d499435dbc285b7be763efd7";
 const AGORA_TEMP_TOKEN = "007eJxTYAjewKJvkbTP+KL9p4+PZyQ+fGv0Vfrgz5JlVW8cy0wzfuYoMBiYGloaJloYp5hYWpoYm6YkJRtZmCaZJ6WamxmnpqWY6563zmoIZGR4JvKQmZEBAkF8TobcxMw83eSMxBIGBgB+LiMW";
+const AGORA_CHANNEL_NAME = "main-chat";
 
 export default function Chat() {
   const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true); // Կանխում է սպիտակ էջի խնդիրը սկզբնական բեռնման ժամանակ
   const [usersList, setUsersList] = useState([]);
   const [activechatUser, setActiveChatUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
-  const dummySpace = useRef();
+  
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, msgId: null, currentText: '', msgType: '' });
 
   const [callSession, setCallSession] = useState(null);
   const [inCall, setInCall] = useState(false);
@@ -28,9 +36,22 @@ export default function Chat() {
   const remoteVideoRef = useRef(null);
   const remoteUserTrackRef = useRef(null);
 
+  const dummySpace = useRef();
+  const prevMessagesCountRef = useRef(0);
+
+  const notificationSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2357/2357-84.wav');
+
+  useEffect(() => {
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      setIsLoading(false); // Հենց Firebase-ը պատասխանում է, անջատում ենք լոադինգը
+      
       if (currentUser) {
         const userRef = ref(db, `users/${currentUser.uid}`);
         set(userRef, {
@@ -62,6 +83,7 @@ export default function Chat() {
   useEffect(() => {
     if (!user || !activechatUser) {
       setMessages([]);
+      prevMessagesCountRef.current = 0;
       return;
     }
     const chatId = user.uid > activechatUser.uid 
@@ -76,10 +98,27 @@ export default function Chat() {
           id: key,
           ...data[key]
         }));
+        
+        if (fetchedMessages.length > prevMessagesCountRef.current) {
+          const lastMsg = fetchedMessages[fetchedMessages.length - 1];
+          if (lastMsg.uid !== user.uid && prevMessagesCountRef.current !== 0) {
+            notificationSound.play().catch(e => console.log(e));
+            
+            if (Notification.permission === 'granted') {
+              new Notification(lastMsg.displayName, {
+                body: lastMsg.type === 'audio' ? '🎤 Ձայնային հաղորդագրություն' : lastMsg.text,
+                icon: lastMsg.photoURL || 'https://via.placeholder.com/150'
+              });
+            }
+          }
+        }
+
         setMessages(fetchedMessages);
+        prevMessagesCountRef.current = fetchedMessages.length;
         setTimeout(() => dummySpace.current?.scrollIntoView({ behavior: 'smooth' }), 50);
       } else {
         setMessages([]);
+        prevMessagesCountRef.current = 0;
       }
     });
     return () => unsubscribe();
@@ -101,37 +140,142 @@ export default function Chat() {
   }, [user]);
 
   useEffect(() => {
-    if (inCall && callType === 'video' && remoteVideoRef.current && remoteUserTrackRef.current) {
-      remoteUserTrackRef.current.play(remoteVideoRef.current);
-    }
-  }, [inCall, callType, remoteVideoRef.current]);
+    const handleCloseMenu = () => setContextMenu(prev => ({ ...prev, visible: false }));
+    window.addEventListener('click', handleCloseMenu);
+    return () => window.removeEventListener('click', handleCloseMenu);
+  }, []);
 
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (newMessage.trim() === '' || !activechatUser) return;
+    if (newMessage.trim() === '' || !activechatUser || !user) return;
 
     const chatId = user.uid > activechatUser.uid 
       ? `${user.uid}_${activechatUser.uid}` 
       : `${activechatUser.uid}_${user.uid}`;
 
-    const chatMessagesRef = ref(db, `chats/${chatId}/messages`);
-    const newMsgRef = push(chatMessagesRef);
+    if (editingMessageId) {
+      const msgRef = ref(db, `chats/${chatId}/messages/${editingMessageId}`);
+      await update(msgRef, {
+        text: newMessage,
+        isEdited: true
+      });
+      setEditingMessageId(null);
+    } else {
+      const chatMessagesRef = ref(db, `chats/${chatId}/messages`);
+      const newMsgRef = push(chatMessagesRef);
 
-    await set(newMsgRef, {
-      text: newMessage,
-      createdAt: serverTimestamp(),
-      uid: user.uid,
-      displayName: user.displayName,
-      photoURL: user.photoURL || ''
+      await set(newMsgRef, {
+        text: newMessage,
+        type: 'text',
+        createdAt: serverTimestamp(),
+        uid: user.uid,
+        displayName: user.displayName,
+        photoURL: user.photoURL || ''
+      });
+    }
+    setNewMessage('');
+  };
+
+  const startRecording = async () => {
+    if (!user || !activechatUser) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        if (audioChunksRef.current.length === 0) return;
+        
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          
+          const chatId = user.uid > activechatUser.uid 
+            ? `${user.uid}_${activechatUser.uid}` 
+            : `${activechatUser.uid}_${user.uid}`;
+
+          const chatMessagesRef = ref(db, `chats/${chatId}/messages`);
+          const newMsgRef = push(chatMessagesRef);
+
+          await set(newMsgRef, {
+            audioUrl: base64Audio,
+            text: '🎤 Voice message',
+            type: 'audio',
+            createdAt: serverTimestamp(),
+            uid: user.uid,
+            displayName: user.displayName,
+            photoURL: user.photoURL || ''
+          });
+        };
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Խոսափողի հասանելիության սխալ:", err);
+      alert("Հնարավոր չէ միացնել խոսափողը։");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+    }
+  };
+
+  const handleContextMenu = (e, msg) => {
+    if (!user || msg.uid !== user.uid) return;
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.pageX,
+      y: e.pageY,
+      msgId: msg.id,
+      currentText: msg.text,
+      msgType: msg.type
     });
+  };
+
+  const handleDeleteMessage = async () => {
+    if (!contextMenu.msgId || !activechatUser || !user) return;
+    const chatId = user.uid > activechatUser.uid 
+      ? `${user.uid}_${activechatUser.uid}` 
+      : `${activechatUser.uid}_${user.uid}`;
+      
+    const msgRef = ref(db, `chats/${chatId}/messages/${contextMenu.msgId}`);
+    await remove(msgRef);
+    setContextMenu(prev => ({ ...prev, visible: false }));
+  };
+
+  const handleStartEdit = () => {
+    if (contextMenu.msgType === 'audio') {
+      alert("Ձայնային հաղորդագրությունը հնարավոր չէ խմբագրել։");
+      return;
+    }
+    setEditingMessageId(contextMenu.msgId);
+    setNewMessage(contextMenu.currentText);
+    setContextMenu(prev => ({ ...prev, visible: false }));
+  };
+
+  const handleSelectUser = (selectedUser) => {
+    setActiveChatUser(selectedUser);
+    setMobileSidebarOpen(false);
+    setEditingMessageId(null);
     setNewMessage('');
   };
 
   const startCall = async (type) => {
     if (!activechatUser || !user) return;
-
-    // Ֆիքսված սենյակի անուն ձեր տոկենի համար
-    const channelName = "main-chat";
 
     setCallType(type);
     setMicMuted(false);
@@ -139,7 +283,7 @@ export default function Chat() {
     
     const targetCallRef = ref(db, `calls/${activechatUser.uid}`);
     await set(targetCallRef, {
-      channelName,
+      channelName: AGORA_CHANNEL_NAME,
       callerId: user.uid,
       callerName: user.displayName,
       callerPhoto: user.photoURL || '',
@@ -149,35 +293,33 @@ export default function Chat() {
 
     const myCallRef = ref(db, `calls/${user.uid}`);
     await set(myCallRef, {
-      channelName,
+      channelName: AGORA_CHANNEL_NAME,
       status: "dialing",
       type: type
     });
 
-    initAgora(channelName, type);
+    initAgora();
   };
 
   const acceptCall = () => {
-    if (!callSession) return;
+    if (!callSession || !user) return;
     
-    // Միշտ միանում ենք ֆիքսված սենյակին
-    const channelName = "main-chat";
     const type = callSession.type || 'video';
     setCallType(type);
     setMicMuted(false);
     setCamMuted(type === 'audio');
 
     const callerRef = ref(db, `calls/${callSession.callerId}`);
-    set(callerRef, { status: "connected", channelName, type });
+    set(callerRef, { status: "connected", channelName: AGORA_CHANNEL_NAME, type });
 
     const myCallRef = ref(db, `calls/${user.uid}`);
-    set(myCallRef, { status: "connected", channelName, type });
+    set(myCallRef, { status: "connected", channelName: AGORA_CHANNEL_NAME, type });
 
-    initAgora(channelName, type);
+    initAgora();
   };
 
   const rejectCall = () => {
-    if (!callSession) return;
+    if (!callSession || !user) return;
     const callerRef = ref(db, `calls/${callSession.callerId}`);
     set(callerRef, null);
 
@@ -186,14 +328,14 @@ export default function Chat() {
     endAgora();
   };
 
-  const initAgora = async (channel, type) => {
+  const initAgora = async () => {
     setInCall(true);
     agoraClientRef.current = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 
     agoraClientRef.current.on("user-published", async (remoteUser, mediaType) => {
       await agoraClientRef.current.subscribe(remoteUser, mediaType);
       
-      if (mediaType === "video" && type === 'video') {
+      if (mediaType === "video" && callType === 'video') {
         remoteUserTrackRef.current = remoteUser.videoTrack;
         if (remoteVideoRef.current) {
           remoteUser.videoTrack.play(remoteVideoRef.current);
@@ -214,9 +356,9 @@ export default function Chat() {
       endCall();
     });
 
-    await agoraClientRef.current.join(AGORA_APP_ID, channel, AGORA_TEMP_TOKEN, null);
+    await agoraClientRef.current.join(AGORA_APP_ID, AGORA_CHANNEL_NAME, AGORA_TEMP_TOKEN, null);
 
-    if (type === 'video') {
+    if (callType === 'video') {
       const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
       localTracksRef.current = [audioTrack, videoTrack];
       if (localVideoRef.current) {
@@ -270,11 +412,16 @@ export default function Chat() {
     setCallSession(null);
   };
 
-  const handleSelectUser = (selectedUser) => {
-    setActiveChatUser(selectedUser);
-    setMobileSidebarOpen(false);
-  };
+  // 1. Ստուգման ընթացքում ցույց ենք տալիս բեռնման էկրան
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-[#f0f2f5] font-sans">
+        <div className="text-gray-600 text-lg font-semibold animate-pulse">Բեռնվում է...</div>
+      </div>
+    );
+  }
 
+  // 2. Եթե լոգին եղած չէ, ցույց է տալիս Google Մուտքի կոճակը
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-screen font-sans bg-[#f0f2f5] px-4 text-center">
@@ -292,6 +439,7 @@ export default function Chat() {
     );
   }
 
+  // 3. Հիմնական հավելվածը (աշխատում է միայն երբ user-ը գոյություն ունի)
   return (
     <div className="flex items-center justify-center h-screen w-screen bg-[#dfdfdf] p-0 sm:p-4 md:p-6 font-sans relative">
       
@@ -366,19 +514,16 @@ export default function Chat() {
         <aside className={`${mobileSidebarOpen ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-r border-solid border-gray-200 flex-col bg-[#f8f9fa] shrink-0 h-full`}>
           <header className="flex justify-between items-center p-4 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0">
             <div className="flex items-center gap-3 overflow-hidden">
-              {user.photoURL ? (
+              {user?.photoURL ? (
                 <img src={user.photoURL} alt="profile" className="w-9 h-9 rounded-full object-cover shadow-sm border border-gray-200" referrerPolicy="no-referrer" />
               ) : (
                 <div className="w-9 h-9 rounded-full bg-[#0b93f6] text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                  {user.displayName?.charAt(0).toUpperCase()}
+                  {user?.displayName?.charAt(0).toUpperCase()}
                 </div>
               )}
-              <span className="font-semibold truncate text-gray-900 text-sm">{user.displayName}</span>
+              <span className="font-semibold truncate text-gray-900 text-sm">{user?.displayName}</span>
             </div>
-            <button 
-              onClick={logout} 
-              className="py-1 px-3 text-xs cursor-pointer border border-solid border-gray-300 rounded-full bg-white hover:bg-gray-100 transition-colors shadow-sm shrink-0 active:scale-95"
-            >
+            <button onClick={logout} className="py-1 px-3 text-xs cursor-pointer border border-solid border-gray-300 rounded-full bg-white hover:bg-gray-100 transition-colors shadow-sm shrink-0 active:scale-95">
               Logout
             </button>
           </header>
@@ -392,9 +537,7 @@ export default function Chat() {
                 key={u.uid}
                 onClick={() => handleSelectUser(u)}
                 className={`flex items-center gap-3.5 w-full p-3 rounded-xl text-left transition-all cursor-pointer ${
-                  activechatUser?.uid === u.uid 
-                    ? 'bg-[#0b93f6] text-white shadow-md' 
-                    : 'hover:bg-gray-200/60 text-black active:bg-gray-200'
+                  activechatUser?.uid === u.uid ? 'bg-[#0b93f6] text-white shadow-md' : 'hover:bg-gray-200/60 text-black active:bg-gray-200'
                 }`}
               >
                 {u.photoURL ? (
@@ -418,10 +561,7 @@ export default function Chat() {
             <>
               <header className="flex justify-between items-center py-2.5 px-4 sm:px-6 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0 z-10">
                 <div className="flex items-center gap-3.5 overflow-hidden">
-                  <button 
-                    onClick={() => setMobileSidebarOpen(true)} 
-                    className="block md:hidden mr-1 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
-                  >
+                  <button onClick={() => setMobileSidebarOpen(true)} className="block md:hidden mr-1 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full transition-colors cursor-pointer">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                     </svg>
@@ -465,46 +605,77 @@ export default function Chat() {
 
               <div className="flex-1 p-4 sm:p-6 overflow-y-auto flex flex-col gap-3 bg-[#f4f5f7]">
                 {messages.map((msg) => (
-                  <div 
-                    key={msg.id} 
-                    className={`flex items-end gap-2.5 ${msg.uid === user.uid ? 'justify-end' : 'justify-start'}`}
-                  >
+                  <div key={msg.id} className={`flex items-end gap-2.5 ${msg.uid === user.uid ? 'justify-end' : 'justify-start'}`}>
                     {msg.uid !== user.uid && (
-                      <>
-                        {msg.photoURL ? (
-                          <img src={msg.photoURL} alt={msg.displayName} className="w-7 h-7 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-7 h-7 rounded-full bg-[#0b93f6] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
-                            {msg.displayName?.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </>
+                      msg.photoURL ? (
+                        <img src={msg.photoURL} alt={msg.displayName} className="w-7 h-7 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-[#0b93f6] text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                          {msg.displayName?.charAt(0).toUpperCase()}
+                        </div>
+                      )
                     )}
                     <div 
-                      className={`p-3 px-4 max-w-[85%] sm:max-w-[70%] break-words shadow-sm ${
+                      onContextMenu={(e) => handleContextMenu(e, msg)}
+                      className={`p-3 px-4 max-w-[85%] sm:max-w-[70%] break-words shadow-sm transition-all relative group cursor-pointer select-none ${
                         msg.uid === user.uid 
                           ? 'bg-[#0b93f6] text-white rounded-t-2xl rounded-bl-2xl rounded-br-sm' 
                           : 'bg-white text-gray-900 rounded-t-2xl rounded-br-2xl rounded-bl-sm border border-solid border-gray-100'
                       }`}
                     >
-                      <p className="text-sm">{msg.text}</p>
+                      {msg.type === 'audio' ? (
+                        <audio src={msg.audioUrl} controls className="max-w-full rounded-lg" />
+                      ) : (
+                        <div>
+                          <p className="text-sm">{msg.text}</p>
+                          {msg.isEdited && (
+                            <span className="block text-[10px] opacity-70 text-right mt-1 italic">խմբագրված</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
                 <div ref={dummySpace}></div>
               </div>
 
-              <form onSubmit={sendMessage} className="flex gap-2 p-3 sm:p-4 bg-white shrink-0 z-10 border-t border-solid border-gray-100">
+              {editingMessageId && (
+                <div className="bg-gray-100 px-6 py-2 flex justify-between items-center text-xs text-gray-600 border-t border-gray-200">
+                  <span>✏️ Խմբագրվում է հաղորդագրությունը...</span>
+                  <button onClick={() => { setEditingMessageId(null); setNewMessage(''); }} className="text-red-500 font-bold hover:underline">Չեղարկել</button>
+                </div>
+              )}
+
+              <form onSubmit={sendMessage} className="flex gap-2 p-3 sm:p-4 bg-white shrink-0 z-10 border-t border-solid border-gray-100 items-center">
+                <button
+                  type="button"
+                  onMouseDown={startRecording}
+                  onMouseUp={stopRecording}
+                  onTouchStart={startRecording}
+                  onTouchEnd={stopRecording}
+                  className={`p-3 rounded-full flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 ${
+                    isRecording ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title="Hold to record voice message"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                    <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
+                    <path d="M19 10a1 1 0 10-2 0v1a5 5 0 01-10 0v-1a1 1 0 10-2 0v1a7 7 0 006 6.93V21a1 1 0 102 0v-3.07A7 7 0 0019 11v-1z" />
+                  </svg>
+                </button>
+
                 <input 
                   value={newMessage} 
                   onChange={(e) => setNewMessage(e.target.value)} 
-                  placeholder="Type a message..." 
-                  className="flex-1 py-2.5 px-4 sm:py-3 sm:px-5 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] transition-all"
+                  placeholder={isRecording ? "Ձայնագրվում է..." : "Գրեք հաղորդագրություն..."}
+                  disabled={isRecording}
+                  className="flex-1 py-2.5 px-4 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] transition-all"
                 />
+                
                 <button 
                   type="submit" 
-                  className={`py-0 px-4 sm:px-5 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md' : 'bg-gray-300'}`}
-                  disabled={!newMessage.trim()}
+                  className={`py-2.5 px-4 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md' : 'bg-gray-300'}`}
+                  disabled={!newMessage.trim() || isRecording}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 -rotate-45 relative right-0.5">
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.94a.75.75 0 00.61.53l6.096.825-6.096.825a.75.75 0 00-.61.53l-2.432 7.94a.75.75 0 00.926.94l19.5-9.25a.75.75 0 000-1.372l-19.5-9.25z" />
@@ -514,12 +685,35 @@ export default function Chat() {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center bg-[#f8f9fa] text-gray-400 font-medium p-4 text-center">
-              <span className="hidden md:block">Select a contact to start chatting</span>
+              <span>Select a contact to start chatting</span>
             </div>
           )}
         </main>
 
       </div>
+
+      {contextMenu.visible && (
+        <div 
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl py-1 w-36 z-50 text-sm font-sans"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.msgType !== 'audio' && (
+            <button 
+              onClick={handleStartEdit}
+              className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+            >
+              ✏️ Փոխել
+            </button>
+          )}
+          <button 
+            onClick={handleDeleteMessage}
+            className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer font-medium"
+          >
+            🗑️ Ջնջել
+          </button>
+        </div>
+      )}
     </div>
   );
 }
