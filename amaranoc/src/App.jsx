@@ -5,8 +5,9 @@ import Like from './pages/LIke'
 import Services from "./pages/Services";
 import Chat from "./pages/Chat";
 import "./App.css";
-import HomePage from "./components/main/homes/homePage";
+import HomePage from "./pages/HomeDetails";
 import Zexcher from "./pages/zexcher";
+import HomeDetails from "./pages/HomeDetails";
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/chat" element={<Chat />} />
           <Route path="/home/:id" element={<HomePage />} />
           <Route path="/zexch" element={<Zexcher/>} />
+          <Route path="/home/:id" element={<HomeDetails />} />
 
         </Routes>
       </div>

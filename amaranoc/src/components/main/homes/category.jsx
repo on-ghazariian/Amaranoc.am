@@ -4,23 +4,33 @@ import { Navigation } from 'swiper/modules';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faMap, faCalendarAlt, faChevronLeft, faChevronRight,
-  faHome, faCampground, faSwimmingPool, faTree, faMountain, faFire, faWater
+  faHome, faCampground, faSwimmingPool, faTree, faMountain, faFire, faHotel, faStore
 } from '@fortawesome/free-solid-svg-icons';
 
 import 'swiper/css';
 import 'swiper/css/navigation';
 
-export default function CategorySlider() {
+export default function CategorySlider({ selectedCategory, onCategoryChange }) {
+  // Քո տրամադրած DB-ի բոլոր կատեգորիաները իրենց icon-ներով
   const categories = [
-    { id: 1, label: 'Ամառանոցներ', icon: faHome },
-    { id: 2, label: 'Frame houses', icon: faCampground },
-    { id: 3, label: 'Տնակներ', icon: faHome },
-    { id: 4, label: 'Փակ լողավազան', icon: faSwimmingPool },
-    { id: 5, label: 'Աղմուկից հեռու', icon: faTree },
-    { id: 6, label: 'Շքեղ տեսարան', icon: faMountain },
-    { id: 7, label: 'Պահանջված', icon: faFire },
-    { id: 8, label: 'Լիճ', icon: faWater },
+    { id: 1, label: 'Ամառանոցներ', key: 'mansion', icon: faHome },
+    { id: 2, label: 'Frame houses', key: 'frame houses', icon: faCampground },
+    { id: 3, label: 'Տնակներ', key: 'homes', icon: faHome },
+    { id: 4, label: 'Փակ լողավազան', key: 'swimming pool', icon: faSwimmingPool },
+    { id: 5, label: 'Աղմուկից հեռու', key: 'silent', icon: faTree },
+    { id: 6, label: 'Շքեղ տեսարան', key: 'magnificent view', icon: faMountain },
+    { id: 7, label: 'Պահանջված', key: 'required', icon: faFire },
+    { id: 8, label: 'Հյուրանոցներ', key: 'hotels', icon: faHotel },
   ];
+
+  const handleCategoryClick = (key) => {
+    // Եթե նույնի վրա ենք սեղմում, անջատում ենք ֆիլտրը (ցույց է տալիս բոլորը)
+    if (selectedCategory === key) {
+      onCategoryChange(null);
+    } else {
+      onCategoryChange(key);
+    }
+  };
 
   return (
     <div className="w-full select-none bg-white">
@@ -56,14 +66,24 @@ export default function CategorySlider() {
           }}
           className="w-full"
         >
-          {categories.map((cat) => (
-            <SwiperSlide key={cat.id} style={{ width: 'auto' }}>
-              <div className="group flex cursor-pointer flex-col items-center gap-1.5 sm:gap-2 border-b-2 border-transparent pb-2 text-[#64748b] transition-all duration-200 hover:border-black hover:text-black">
-                <FontAwesomeIcon icon={cat.icon} className="text-base sm:text-lg md:text-xl" />
-                <span className="text-[11px] sm:text-[12px] font-medium whitespace-nowrap">{cat.label}</span>
-              </div>
-            </SwiperSlide>
-          ))}
+          {categories.map((cat) => {
+            const isActive = selectedCategory === cat.key;
+            return (
+              <SwiperSlide key={cat.id} style={{ width: 'auto' }}>
+                <div 
+                  onClick={() => handleCategoryClick(cat.key)}
+                  className={`group flex cursor-pointer flex-col items-center gap-1.5 sm:gap-2 border-b-2 pb-2 transition-all duration-200 ${
+                    isActive 
+                      ? 'border-black text-black font-semibold' 
+                      : 'border-transparent text-[#64748b] hover:border-black hover:text-black'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={cat.icon} className="text-base sm:text-lg md:text-xl" />
+                  <span className="text-[11px] sm:text-[12px] font-medium whitespace-nowrap">{cat.label}</span>
+                </div>
+              </SwiperSlide>
+            );
+          })}
         </Swiper>
 
         <button 

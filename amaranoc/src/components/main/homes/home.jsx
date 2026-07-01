@@ -1,44 +1,86 @@
 import React, { useState, useEffect } from "react";
-import { getDatabase, ref, get } from "firebase/database";
-import { app } from "../../../lib/firebase";
 import CategorySlider from "./category";
 import HomeCard from "./homeCard";
 
-export default function Home() {
-  const [db, setDb] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
+  const [filteredDb, setFilteredDb] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null); // Կատեգորիայի սթեյթը
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
 
   useEffect(() => {
-    const database = getDatabase(app);
-    const listingsRef = ref(database, "listings");
+    // Օգտագործում ենք Main.jsx-ից եկած պատրաստի տվյալները
+    if (initialDb.length === 0) {
+      setFilteredDb([]);
+      return;
+    }
 
-    get(listingsRef)
-      .then((snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.val();
-          const formattedData = Object.keys(data).map((key) => ({
-            id: key,
-            ...data[key],
-          }));
-          setDb(formattedData);
-        } else {
-          console.log("No data available at this path.");
-        }
-      })
-      .catch((error) => {
-        console.error("Error fetching data from Firebase:", error);
-      })
-      .finally(() => {
-        setLoading(false);
+    let result = [...initialDb];
+
+    // 1. Սլայդերի Կատեգորիայի Ֆիլտր
+    if (selectedCategory) {
+      result = result.filter(item => item.category === selectedCategory);
+    }
+
+    // 2. Կողային Ֆիլտրեր (եթե ակտիվ են)
+    if (activeFilters) {
+      if (activeFilters.regions.length > 0) {
+        result = result.filter(item => activeFilters.regions.includes(item.addres));
+      }
+
+      result = result.filter(item => {
+        const priceToCompare = activeFilters.isSleep === 'Այո' && item.sleepPrice ? item.sleepPrice : item.price;
+        return priceToCompare >= activeFilters.minPrice && priceToCompare <= activeFilters.maxPrice;
       });
-  }, []);
+
+      result = result.filter(item => (item.peopleCaunt || item.peopleCount || 0) >= activeFilters.peopleCount);
+
+      if (activeFilters.isSleep !== 'Բոլորը') {
+        const targetSleep = activeFilters.isSleep === 'Այո';
+        result = result.filter(item => item.isSleep === targetSleep);
+      }
+
+      result = result.filter(item => (item.peopleSleepCaunt || 0) >= activeFilters.peopleSleepCount);
+
+      if (activeFilters.rooms !== 'Բոլորը') {
+        if (activeFilters.rooms === '6 և ավելի') {
+          result = result.filter(item => item.rooms >= 6);
+        } else {
+          result = result.filter(item => item.rooms === parseInt(activeFilters.rooms));
+        }
+      }
+
+      if (activeFilters.tualets !== 'Բոլորը') {
+        if (activeFilters.tualets === '3+') {
+          result = result.filter(item => item.tualets >= 3);
+        } else {
+          result = result.filter(item => item.tualets === parseInt(activeFilters.tualets));
+        }
+      }
+
+      if (activeFilters.baseyn !== 'Բոլորը') {
+        if (activeFilters.baseyn === 'Առանց լողավազանի') {
+          result = result.filter(item => !item.baseyn || item.baseyn.trim() === '');
+        } else {
+          result = result.filter(item => item.baseyn && item.baseyn.includes(activeFilters.baseyn));
+        }
+      }
+
+      if (activeFilters.advantages.length > 0) {
+        result = result.filter(item => 
+          item.advantages && activeFilters.advantages.every(adv => item.advantages.includes(adv))
+        );
+      }
+    }
+
+    setFilteredDb(result);
+    setCurrentPage(1);
+  }, [activeFilters, initialDb, selectedCategory]); // Ավելացրինք selectedCategory-ն այստեղ
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentHomes = db.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(db.length / itemsPerPage);
+  const currentHomes = filteredDb.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredDb.length / itemsPerPage);
 
   const paginate = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -47,11 +89,15 @@ export default function Home() {
 
   return (
     <div className="w-full">
-      <CategorySlider />
+      {/* Փոխանցում ենք սթեյթը սլայդերին */}
+      <CategorySlider 
+        selectedCategory={selectedCategory} 
+        onCategoryChange={setSelectedCategory} 
+      />
 
       <div className="my-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <h2 className="text-base sm:text-lg md:text-xl font-bold text-[#0f172a]">
-          Սովորական առաջարկներ
+          Սովորական առաջարկներ ({filteredDb.length})
         </h2>
         <div className="flex gap-1.5 shrink-0 justify-end">
           <div className="flex cursor-pointer items-center gap-[3px] rounded-lg border border-[#e2e8f0] bg-white px-2.5 py-1.5 active:bg-gray-50 transition-colors">
@@ -66,7 +112,7 @@ export default function Home() {
         </div>
       </div>
 
-      {loading ? (
+      {isDbLoading ? (
         <div className="text-center py-12 text-gray-500 font-medium text-sm sm:text-base animate-pulse">
           Բեռնվում է...
         </div>
@@ -77,6 +123,12 @@ export default function Home() {
               <HomeCard key={home.id} home={home} index={index} />
             ))}
           </div>
+
+          {filteredDb.length === 0 && (
+            <div className="text-center py-12 text-gray-400 font-medium text-sm">
+              Համապատասխան տնակ չի գտնվել։
+            </div>
+          )}
 
           {totalPages > 1 && (
             <div className="flex justify-center items-center gap-2 mt-10 mb-4">
