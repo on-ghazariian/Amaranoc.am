@@ -6,9 +6,8 @@ import FooterForm from '../components/footer/footer'
 export default function LIke() {
   return (
     <>
-       <Header/>
        <Likes/>
-       <FooterForm/>
+
     </>
   )
 }

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import FilterGroup from './FilterGroup';
 import CheckboxFilter from './CheckboxFilter';
 import RangeFilter from './RangeFilter';
@@ -7,19 +8,27 @@ import BadgeFilter from './BadgeFilter';
 import CurrencySelector from './CurrencySelector';
 
 function Filter({ onFilterChange, db = [] }) {
-  const [filters, setFilters] = useState({
-    regions: [], 
-    minPrice: 0,
-    maxPrice: 10000000,
-    currency: 'AMD',
-    peopleCount: 1,
-    isSleep: 'Բոլորը',
-    peopleSleepCount: 0,
-    rooms: 'Բոլորը',
-    tualets: 'Բոլորը',
-    baseyn: 'Բոլորը',
-    advantages: []
-  });
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+
+  const filters = useMemo(() => {
+    return {
+      // Ստորակետի (,) փոխարեն օգտագործում ենք ուղղահայաց գիծ (|)
+      regions: searchParams.get('regions') ? searchParams.get('regions').split('|') : [],
+      minPrice: Number(searchParams.get('minPrice')) || 0,
+      maxPrice: Number(searchParams.get('maxPrice')) || 10000000,
+      currency: searchParams.get('currency') || 'AMD',
+      peopleCount: Number(searchParams.get('peopleCount')) || 1,
+      isSleep: searchParams.get('isSleep') || 'Բոլորը',
+      peopleSleepCount: Number(searchParams.get('peopleSleepCount')) || 0,
+      rooms: searchParams.get('rooms') || 'Բոլորը',
+      tualets: searchParams.get('tualets') || 'Բոլորը',
+      baseyn: searchParams.get('baseyn') || 'Բոլորը',
+      advantages: searchParams.get('advantages') ? searchParams.get('advantages').split('|') : []
+    };
+  }, [searchParams]);
 
   useEffect(() => {
     if (onFilterChange) {
@@ -29,37 +38,62 @@ function Filter({ onFilterChange, db = [] }) {
 
   const regionCounts = useMemo(() => {
     const counts = {};
-    
     db.forEach(item => {
       if (item.addres) {
         counts[item.addres] = (counts[item.addres] || 0) + 1;
       }
     });
-
     return Object.entries(counts)
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count); 
+      .sort((a, b) => b.count - a.count);
   }, [db]);
 
-  const handleCheckboxChange = (group, label, isChecked) => {
-    setFilters(prev => {
-      const currentItems = prev[group];
-      const updatedItems = isChecked 
-        ? [...currentItems, label] 
-        : currentItems.filter(item => item !== label);
-      return { ...prev, [group]: updatedItems };
+  const updateURL = (newFilters) => {
+    const params = new URLSearchParams(location.search);
+
+    Object.entries(newFilters).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        if (value.length > 0) {
+          // Միացնում ենք | նշանով, որպեսզի ստորակետ ունեցող անունները չպառակտվեն
+          params.set(key, value.join('|'));
+        } else {
+          params.delete(key);
+        }
+      } else if (
+        value === '' || 
+        value === 'Բոլորը' || 
+        (key === 'minPrice' && value === 0) || 
+        (key === 'maxPrice' && value === 10000000) || 
+        (key === 'peopleCount' && value === 1) || 
+        (key === 'peopleSleepCount' && value === 0) ||
+        (key === 'currency' && value === 'AMD')
+      ) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
     });
+
+    navigate(`?${params.toString()}`, { replace: true });
+  };
+
+  const handleCheckboxChange = (group, label, isChecked) => {
+    const currentItems = filters[group];
+    const updatedItems = isChecked
+      ? [...currentItems, label]
+      : currentItems.filter(item => item !== label);
+    
+    updateURL({ [group]: updatedItems });
   };
 
   const handleSelectChange = (field, value) => {
-    setFilters(prev => ({ ...prev, [field]: value }));
+    updateURL({ [field]: value });
   };
 
   return (
     <aside className="w-full xl:w-[280px] 2xl:w-[300px] shrink-0 flex flex-col gap-5 rounded-2xl border border-[#e0e0e0] bg-white p-4 sm:p-5 font-sans">
       
       <FilterGroup title="Տարածաշրջան">
-        {/* Այս հատվածը հիմա բոլոր էկրանների վրա ունի նույն ֆիքսված բարձրությունը և scroll-ը */}
         <div className="flex flex-col gap-1.5 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
           {regionCounts.length > 0 ? (
             regionCounts.map(region => (
@@ -87,7 +121,7 @@ function Filter({ onFilterChange, db = [] }) {
             <RangeFilter 
               min={filters.minPrice} 
               max={filters.maxPrice} 
-              onChange={(min, max) => setFilters(prev => ({ ...prev, minPrice: min || 0, maxPrice: max || 10000000 }))} 
+              onChange={(min, max) => updateURL({ minPrice: min || 0, maxPrice: max || 10000000 })} 
             />
           </div>
         </div>
@@ -103,7 +137,7 @@ function Filter({ onFilterChange, db = [] }) {
       <FilterGroup title="Գիշերակացի առկայություն">
         <BadgeFilter 
           options={['Բոլորը', 'Այո', 'Ոչ']} 
-          activeIndex={filters.isSleep === 'Բոլորը' ? 0 : filters.isSleep === 'Այո' ? 1 : 2} 
+          activeValue={filters.isSleep} 
           onChange={(val) => handleSelectChange('isSleep', val)}
         />
       </FilterGroup>
@@ -118,7 +152,7 @@ function Filter({ onFilterChange, db = [] }) {
       <FilterGroup title="Սենյակների քանակ">
         <BadgeFilter 
           options={['Բոլորը', '1', '2', '3', '4', '5', '6 և ավելի']} 
-          activeIndex={['Բոլորը', '1', '2', '3', '4', '5', '6 և ավելի'].indexOf(filters.rooms)} 
+          activeValue={filters.rooms} 
           onChange={(val) => handleSelectChange('rooms', val)}
         />
       </FilterGroup>
@@ -126,7 +160,7 @@ function Filter({ onFilterChange, db = [] }) {
       <FilterGroup title="Սանհանգույցների քանակ">
         <BadgeFilter 
           options={['Բոլորը', '1', '2', '3+']} 
-          activeIndex={['Բոլորը', '1', '2', '3+'].indexOf(filters.tualets)} 
+          activeValue={filters.tualets} 
           onChange={(val) => handleSelectChange('tualets', val)}
         />
       </FilterGroup>
@@ -134,7 +168,7 @@ function Filter({ onFilterChange, db = [] }) {
       <FilterGroup title="Լողավազան">
         <BadgeFilter 
           options={['Բոլորը', 'Բաց', 'Փակ', 'Տաքացվող', 'Առանց լողավազանի']} 
-          activeIndex={['Բոլորը', 'Բաց', 'Փակ', 'Տաքացվող', 'Առանց լողավազանի'].indexOf(filters.baseyn)} 
+          activeValue={filters.baseyn} 
           onChange={(val) => handleSelectChange('baseyn', val)}
         />
       </FilterGroup>

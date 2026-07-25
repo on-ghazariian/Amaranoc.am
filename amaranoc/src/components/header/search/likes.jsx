@@ -9,14 +9,14 @@ export default function Likes() {
     <div className="w-full px-4 py-5 sm:px-6 md:px-10 lg:pl-12">
       <h2 className="mb-6 text-lg sm:text-xl md:text-2xl font-bold text-[#0f172a] flex items-center">
         <a className="pr-4 transition-transform duration-200 hover:-translate-x-1" href="/">
-          <i className="fa-solid fa-arrow-left"></i>
+          <i className="fa-solid fa-arrow-left"/>
         </a>
         <span>Իմ նախընտրած ամառանոցները</span>
       </h2>
       
       {likedHomes.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 sm:py-24 text-center">
-          <i className="fa-regular fa-heart mb-4 text-4xl sm:text-5xl text-gray-300"></i>
+          <i className="fa-regular fa-heart mb-4 text-4xl sm:text-5xl text-gray-300"/>
           <p className="text-sm sm:text-base text-gray-500">Ձեր նախընտրածների ցուցակը դատարկ է։</p>
         </div>
       ) : (

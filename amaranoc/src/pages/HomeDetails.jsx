@@ -111,7 +111,7 @@ export default function HomeDetails() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-12 font-sans text-[#334155]">
-      <Header/>
+    
       
       <div className="mx-auto max-w-[1300px] px-4 pt-4">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between bg-white rounded-2xl border border-slate-100 p-4 shadow-sm gap-4">
@@ -403,7 +403,7 @@ export default function HomeDetails() {
           </div>
         </div>
       )}
-      <FooterForm/>
+  
     </div>
   );
 }

@@ -9,14 +9,12 @@ import Home from "../components/zexch/home";
 export default function Zexcher() {
   return (
     <div className="w-full flex items-center justify-center flex-col">
-      <Header />
       <Zexch />
       <NverCard />
       <PriceZone />
       <div className="w-2/3">
         <Home />
       </div>
-      <FooterForm />
     </div>
   );
 }

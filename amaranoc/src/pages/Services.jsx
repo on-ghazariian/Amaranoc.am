@@ -8,10 +8,8 @@ import ServiceGrid from '../components/Services/servic'
 export default function services() {
   return (
     <>
-    <Header/>
     <CategorySlider/>
     <ServiceGrid/>
-    <FooterForm/>
     </>
   )
 }

@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { auth, signInWithGoogle, logout, db } from './../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { ref, set, push, onValue, serverTimestamp, update, remove } from 'firebase/database';
+import { ref, set, push, onValue, serverTimestamp, update, remove, onDisconnect } from 'firebase/database';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
 const AGORA_APP_ID = "05191a83d499435dbc285b7be763efd7";
-const AGORA_TEMP_TOKEN = "007eJxTYAjewKJvkbTP+KL9p4+PZyQ+fGv0Vfrgz5JlVW8cy0wzfuYoMBiYGloaJloYp5hYWpoYm6YkJRtZmCaZJ6WamxmnpqWY6563zmoIZGR4JvKQmZEBAkF8TobcxMw83eSMxBIGBgB+LiMW";
-const AGORA_CHANNEL_NAME = "main-chat";
+const AGORA_TEMP_TOKEN = "007eJxTYOB2N6/p+5eqUsSvbtt6/8am7tenL5YbVpQZ/Z+wKf5wWJECg4GpoaVhooVxiomlpYmxaUpSspGFaZJ5Uqq5mXFqWop5i51rVkMgIwPr6nAWRgYIBPH5GcoyU1LzdZMzEkt0S1KLSxgYAJrpItc=";
+const AGORA_CHANNEL_NAME = "video-chat-test";
 
 export default function Chat() {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true); // Կանխում է սպիտակ էջի խնդիրը սկզբնական բեռնման ժամանակ
+  const [isLoading, setIsLoading] = useState(true);
   const [usersList, setUsersList] = useState([]);
   const [activechatUser, setActiveChatUser] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -48,22 +48,40 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setIsLoading(false); // Հենց Firebase-ը պատասխանում է, անջատում ենք լոադինգը
-      
-      if (currentUser) {
-        const userRef = ref(db, `users/${currentUser.uid}`);
-        set(userRef, {
-          uid: currentUser.uid,
-          displayName: currentUser.displayName,
-          photoURL: currentUser.photoURL || '',
+      setIsLoading(false);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const userRef = ref(db, `users/${user.uid}`);
+    const connectedRef = ref(db, '.info/connected');
+
+    const connectedRefUnsubscribe = onValue(connectedRef, (snap) => {
+      if (snap.val() === true) {
+        onDisconnect(userRef).update({
+          isOnline: false,
           lastSeen: serverTimestamp()
+        }).then(() => {
+          update(userRef, {
+            uid: user.uid,
+            displayName: user.displayName,
+            photoURL: user.photoURL || '',
+            isOnline: true,
+            lastSeen: serverTimestamp()
+          });
         });
       }
     });
-    return () => unsubscribe();
-  }, []);
+
+    return () => {
+      connectedRefUnsubscribe();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -106,7 +124,7 @@ export default function Chat() {
             
             if (Notification.permission === 'granted') {
               new Notification(lastMsg.displayName, {
-                body: lastMsg.type === 'audio' ? '🎤 Ձայնային հաղորդագրություն' : lastMsg.text,
+                body: lastMsg.type === 'audio' ? '🎤 Voice Message' : lastMsg.text,
                 icon: lastMsg.photoURL || 'https://via.placeholder.com/150'
               });
             }
@@ -220,8 +238,7 @@ export default function Chat() {
       mediaRecorderRef.current.start();
       setIsRecording(true);
     } catch (err) {
-      console.error("Խոսափողի հասանելիության սխալ:", err);
-      alert("Հնարավոր չէ միացնել խոսափողը։");
+      console.error(err);
     }
   };
 
@@ -258,10 +275,7 @@ export default function Chat() {
   };
 
   const handleStartEdit = () => {
-    if (contextMenu.msgType === 'audio') {
-      alert("Ձայնային հաղորդագրությունը հնարավոր չէ խմբագրել։");
-      return;
-    }
+    if (contextMenu.msgType === 'audio') return;
     setEditingMessageId(contextMenu.msgId);
     setNewMessage(contextMenu.currentText);
     setContextMenu(prev => ({ ...prev, visible: false }));
@@ -412,26 +426,36 @@ export default function Chat() {
     setCallSession(null);
   };
 
-  // 1. Ստուգման ընթացքում ցույց ենք տալիս բեռնման էկրան
+  const handleLogout = async () => {
+    if (user) {
+      const userRef = ref(db, `users/${user.uid}`);
+      await update(userRef, { isOnline: false, lastSeen: serverTimestamp() });
+    }
+    logout();
+  };
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-screen bg-[#f0f2f5] font-sans">
-        <div className="text-gray-600 text-lg font-semibold animate-pulse">Բեռնվում է...</div>
+      <div className="flex items-center justify-center h-screen w-full bg-[#f0f2f5] font-sans">
+        <div className="text-gray-600 text-lg font-semibold animate-pulse">Loading...</div>
       </div>
     );
   }
 
-  // 2. Եթե լոգին եղած չէ, ցույց է տալիս Google Մուտքի կոճակը
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen font-sans bg-[#f0f2f5] px-4 text-center">
+      <div className="flex flex-col items-center justify-center h-screen w-full font-sans bg-[#f0f2f5] px-4 text-center">
         <h2 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-800">Welcome to ChatHub</h2>
         <button 
           onClick={signInWithGoogle} 
           className="flex items-center gap-2 px-6 py-3 text-base sm:text-lg font-semibold bg-[#4285F4] text-white border-none rounded-full hover:bg-[#357ae8] transition-colors shadow-lg active:scale-95 cursor-pointer"
         >
           <svg className="w-5 h-5" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.64 24.55c0-1.65-.15-3.23-.42-4.75H24v9h12.75c-.55 2.86-2.16 5.27-4.57 6.89l7.98 6.19C44.3 38.62 46.64 32.17 46.64 24.55z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.98-6.19c-2.33 1.52-5.18 2.4-7.91 2.4-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path>
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+            <path fill="#4285F4" d="M46.64 24.55c0-1.65-.15-3.23-.42-4.75H24v9h12.75c-.55 2.86-2.16 5.27-4.57 6.89l7.98 6.19C44.3 38.62 46.64 32.17 46.64 24.55z"></path>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.98-6.19z"></path>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.98-6.19c-2.33 1.52-5.18 2.4-7.91 2.4-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+            <path fill="none" d="M0 0h48v48H0z"></path>
           </svg>
           Sign in with Google
         </button>
@@ -439,9 +463,8 @@ export default function Chat() {
     );
   }
 
-  // 3. Հիմնական հավելվածը (աշխատում է միայն երբ user-ը գոյություն ունի)
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-[#dfdfdf] p-0 sm:p-4 md:p-6 font-sans relative">
+    <div className="flex items-center justify-center h-screen w-full max-w-full overflow-x-hidden bg-[#dfdfdf] p-0 sm:p-4 md:p-6 font-sans relative">
       
       {callSession && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -484,7 +507,7 @@ export default function Chat() {
               </div>
             )}
           </div>
-          
+
           <div className="h-24 bg-slate-900 border-t border-slate-800 flex items-center justify-center gap-4">
             <button 
               onClick={toggleMic} 
@@ -523,7 +546,7 @@ export default function Chat() {
               )}
               <span className="font-semibold truncate text-gray-900 text-sm">{user?.displayName}</span>
             </div>
-            <button onClick={logout} className="py-1 px-3 text-xs cursor-pointer border border-solid border-gray-300 rounded-full bg-white hover:bg-gray-100 transition-colors shadow-sm shrink-0 active:scale-95">
+            <button onClick={handleLogout} className="py-1 px-3 text-xs cursor-pointer border border-solid border-gray-300 rounded-full bg-white hover:bg-gray-100 transition-colors shadow-sm shrink-0 active:scale-95">
               Logout
             </button>
           </header>
@@ -531,7 +554,7 @@ export default function Chat() {
           <div className="flex-1 overflow-y-auto p-2.5 flex flex-col gap-1">
             <p className="text-xs font-bold text-gray-400 px-3 py-1.5 uppercase tracking-wider">Contacts</p>
             {usersList.length === 0 ? (
-              <div className="text-center text-gray-400 text-sm mt-5">No other users online</div>
+              <div className="text-center text-gray-400 text-sm mt-5">No other users</div>
             ) : usersList.map((u) => (
               <button
                 key={u.uid}
@@ -549,14 +572,22 @@ export default function Chat() {
                 )}
                 <div className="flex flex-col overflow-hidden">
                   <span className="font-semibold truncate text-sm">{u.displayName}</span>
-                  <span className={`text-xs truncate ${activechatUser?.uid === u.uid ? 'text-gray-100' : 'text-gray-400'}`}>Click to chat</span>
+                  <span className={`text-xs truncate font-medium ${
+                    activechatUser?.uid === u.uid 
+                      ? 'text-gray-100' 
+                      : u.isOnline 
+                        ? 'text-green-600' 
+                        : 'text-gray-400'
+                  }`}>
+                    {u.isOnline ? '🟢 Online' : 'Offline'}
+                  </span>
                 </div>
               </button>
             ))}
           </div>
         </aside>
 
-        <main className={`${!mobileSidebarOpen ? 'flex' : 'hidden'} md:flex flex-1 flex-col bg-white h-full relative`}>
+        <main className={`${!mobileSidebarOpen ? 'flex' : 'hidden'} md:flex flex-1 flex-col bg-white h-full relative overflow-hidden`}>
           {activechatUser ? (
             <>
               <header className="flex justify-between items-center py-2.5 px-4 sm:px-6 bg-white border-b border-solid border-gray-200 h-[65px] shrink-0 z-10">
@@ -576,7 +607,9 @@ export default function Chat() {
                   )}
                   <div className="flex flex-col overflow-hidden">
                     <h3 className="font-semibold text-gray-950 text-sm leading-tight truncate">{activechatUser.displayName}</h3>
-                    <span className="text-xs text-green-500 font-medium">Active now</span>
+                    <span className={`text-xs font-medium ${activechatUser.isOnline ? 'text-green-500' : 'text-gray-400'}`}>
+                      {activechatUser.isOnline ? '🟢 Online' : 'Offline'}
+                    </span>
                   </div>
                 </div>
 
@@ -603,7 +636,7 @@ export default function Chat() {
                 </div>
               </header>
 
-              <div className="flex-1 p-4 sm:p-6 overflow-y-auto flex flex-col gap-3 bg-[#f4f5f7]">
+              <div className="flex-1 p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex flex-col gap-3 bg-[#f4f5f7]">
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex items-end gap-2.5 ${msg.uid === user.uid ? 'justify-end' : 'justify-start'}`}>
                     {msg.uid !== user.uid && (
@@ -653,14 +686,14 @@ export default function Chat() {
                   onMouseUp={stopRecording}
                   onTouchStart={startRecording}
                   onTouchEnd={stopRecording}
-                  className={`p-3 rounded-full flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 ${
+                  className={`p-3 rounded-full flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shrink-0 ${
                     isRecording ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
                   title="Hold to record voice message"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                    <path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z" />
-                    <path d="M19 10a1 1 0 10-2 0v1a5 5 0 01-10 0v-1a1 1 0 10-2 0v1a7 7 0 006 6.93V21a1 1 0 102 0v-3.07A7 7 0 0019 11v-1z" />
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+                    <path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.08A7 7 0 0 0 19 11z"/>
                   </svg>
                 </button>
 
@@ -669,12 +702,12 @@ export default function Chat() {
                   onChange={(e) => setNewMessage(e.target.value)} 
                   placeholder={isRecording ? "Ձայնագրվում է..." : "Գրեք հաղորդագրություն..."}
                   disabled={isRecording}
-                  className="flex-1 py-2.5 px-4 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] transition-all"
+                  className="flex-1 min-w-0 py-2.5 px-4 border border-solid border-gray-200 rounded-full text-sm outline-none bg-[#f0f2f5] focus:bg-white focus:border-[#0b93f6] transition-all"
                 />
                 
                 <button 
                   type="submit" 
-                  className={`py-2.5 px-4 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md' : 'bg-gray-300'}`}
+                  className={`py-2.5 px-4 text-white border-none rounded-full cursor-pointer hover:bg-[#0a81d6] transition-all active:scale-95 flex items-center justify-center shrink-0 ${newMessage.trim() ? 'bg-[#0b93f6] shadow-md' : 'bg-gray-300'}`}
                   disabled={!newMessage.trim() || isRecording}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 -rotate-45 relative right-0.5">

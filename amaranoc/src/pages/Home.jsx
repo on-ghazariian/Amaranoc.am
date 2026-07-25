@@ -6,9 +6,7 @@ import FooterForm from "../components/footer/footer";
 export default function Home() {
   return (
     <div>
-      <Header />
       <Main />
-      <FooterForm />
     </div>
   );
 }
