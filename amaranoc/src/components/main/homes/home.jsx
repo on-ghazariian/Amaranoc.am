@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from "react";
 import CategorySlider from "./category";
 import HomeCard from "./homeCard";
+import { useSearchStore } from "../../../store/useSearchStore";
+import { auth } from "../../../lib/firebase";
 
 export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
   const [filteredDb, setFilteredDb] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(null); // Կատեգորիայի սթեյթը
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [userPhoto, setUserPhoto] = useState(null);
   const itemsPerPage = 12;
 
+  const searchQuery = useSearchStore((state) => state.searchQuery);
+
+  // Google Provider-ից նկարը ճշգրիտ ստանալու տրամաբանությունը
   useEffect(() => {
-    // Օգտագործում ենք Main.jsx-ից եկած պատրաստի տվյալները
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        // Ստուգում ենք թե՛ direct photoURL-ը, թե՛ Google provider-ի photoURL-ը
+        const googlePhoto = user.photoURL || user.providerData?.[0]?.photoURL;
+        setUserPhoto(googlePhoto || null);
+      } else {
+        setUserPhoto(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
     if (initialDb.length === 0) {
       setFilteredDb([]);
       return;
@@ -17,12 +36,22 @@ export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
 
     let result = [...initialDb];
 
-    // 1. Սլայդերի Կատեգորիայի Ֆիլտր
+    // ՈՐՈՆՄԱՆ ՖԻԼՏՐ
+    if (searchQuery.trim() !== '') {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(item => {
+        const addressMatch = item.addres && item.addres.toLowerCase().includes(query);
+        const idMatch = item.id && item.id.toLowerCase().includes(query);
+        return addressMatch || idMatch;
+      });
+    }
+
+    // Կատեգորիայի Ֆիլտր
     if (selectedCategory) {
       result = result.filter(item => item.category === selectedCategory);
     }
 
-    // 2. Կողային Ֆիլտրեր (եթե ակտիվ են)
+    // Կողային Ֆիլտրեր
     if (activeFilters) {
       if (activeFilters.regions.length > 0) {
         result = result.filter(item => activeFilters.regions.includes(item.addres));
@@ -75,7 +104,7 @@ export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
 
     setFilteredDb(result);
     setCurrentPage(1);
-  }, [activeFilters, initialDb, selectedCategory]); // Ավելացրինք selectedCategory-ն այստեղ
+  }, [activeFilters, initialDb, selectedCategory, searchQuery]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -89,7 +118,6 @@ export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
 
   return (
     <div className="w-full">
-      {/* Փոխանցում ենք սթեյթը սլայդերին */}
       <CategorySlider 
         selectedCategory={selectedCategory} 
         onCategoryChange={setSelectedCategory} 
@@ -99,7 +127,11 @@ export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
         <h2 className="text-base sm:text-lg md:text-xl font-bold text-[#0f172a]">
           Սովորական առաջարկներ ({filteredDb.length})
         </h2>
-        <div className="flex gap-1.5 shrink-0 justify-end">
+
+        {/* Իկոնաներ և Google User Avatar-ը */}
+        <div className="flex items-center gap-3 shrink-0 justify-end">
+
+
           <div className="flex cursor-pointer items-center gap-[3px] rounded-lg border border-[#e2e8f0] bg-white px-2.5 py-1.5 active:bg-gray-50 transition-colors">
             <span className="h-1.5 w-2.5 rounded-[1px] border-2 border-[#94a3b8]"></span>
             <span className="h-1.5 w-2.5 rounded-[1px] border-2 border-[#94a3b8]"></span>
@@ -126,7 +158,7 @@ export default function Home({ activeFilters, initialDb = [], isDbLoading }) {
 
           {filteredDb.length === 0 && (
             <div className="text-center py-12 text-gray-400 font-medium text-sm">
-              Համապատասխան տնակ չի գտնվել։
+              {searchQuery ? `«${searchQuery}» որոնմամբ տնակ չի գտնվել։` : 'Համապատասխան տնակ չի գտնվել։'}
             </div>
           )}
 

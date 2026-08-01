@@ -1,10 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
+import { useSearchStore } from '../../../store/useSearchStore'; // Ներմուծում ենք search store-ը
 
 function Search() {
-  const likedHomes = useFavoritesStore((state) => state.likedHomes);
+  const likedHomes = useFavoritesStore((state) => state.likedHomes) || [];
   const favoritesCount = likedHomes.length;
+
+  // Zustand state
+  const { searchQuery, setSearchQuery } = useSearchStore();
 
   return (
     <div className="flex items-center justify-end gap-4 sm:gap-5 md:gap-[22px] w-full sm:w-auto">
@@ -25,7 +29,9 @@ function Search() {
       <div className="relative flex items-center w-full max-w-[150px] xs:max-w-[18px] sm:max-w-[220px] md:w-[255px]">
         <input 
           type="text" 
-          placeholder="Որոնում" 
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)} // Յուրաքանչյուր տառ գրելիս թարմացնում է store-ը
+          placeholder="Որոնել ըստ հասցեի կամ ID-ի..." 
           className="w-full rounded-[30px] border border-[#dcdcdc] bg-white py-2 sm:py-[11px] pl-4 sm:pl-5 pr-9 sm:pr-10 text-xs sm:text-sm font-sans text-[#1a2530] outline-none placeholder:text-[#b0b5bc]" 
         />
         <i className="fa-solid fa-magnifying-glass pointer-events-none absolute right-3 sm:right-4 text-sm sm:text-base text-[#1a2530]"></i>
